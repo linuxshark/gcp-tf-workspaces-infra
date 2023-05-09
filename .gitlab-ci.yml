@@ -1,0 +1,130 @@
+stages:
+    - tf-check
+    - tf-plan
+    - tf-apply-refresh
+    - tf-apply
+
+.terraform:
+  image:
+    name: hashicorp/terraform:1.1.8
+    entrypoint:
+      - '/usr/bin/env'
+      - 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+  services: []
+  before_script:
+    - rm -rf modules || true
+    - git clone https://${GITLAB_USER_LOGIN}:${GITLAB_TOKEN}@gitlab.com/unicomer/digital-factory-financial-services/unicomer-emma-infrastructure-modules.git
+    - mv unicomer-emma-infrastructure-modules modules
+    - echo $GCP_CREDENTIALS > gcloud-service-key.json
+    - export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcloud-service-key.json
+    - rm -rf .terraform || true
+    - terraform init || true
+  tags:
+    - digfact-runner
+  except:
+    - schedules
+
+terraform-format:
+  stage: tf-check
+  extends: .terraform
+  script:
+    - terraform fmt -check
+
+terraform-validate:
+  extends: .terraform
+  stage: tf-check
+  script:
+    - terraform validate
+
+terraform-plan-DEV:
+  extends: .terraform
+  stage: tf-plan
+  script:
+    - terraform workspace select default
+    - terraform plan -var-file="Dev/terraform-dev.tfvars" -out tfplan-dev
+  artifacts:
+    expire_in: 1 hour
+    paths:
+      - tfplan-dev
+
+terraform-plan-UAT:
+  extends: .terraform
+  stage: tf-plan
+  script:
+    - terraform workspace select UnicomerUAT
+    - terraform plan -var-file="UAT/terraform-uat.tfvars" -out tfplan-uat
+  artifacts:
+    expire_in: 1 hour
+    paths:
+      - tfplan-uat
+
+# terraform-plan-PROD:
+#   extends: .terraform
+#   stage: tf-plan
+#   script:
+#     - terraform workspace select UnicomerPROD
+#     - terraform plan -var-file="Production/terraform-prod.tfvars" -out tfplan-prod
+#   artifacts:
+#     expire_in: 1 hour
+#     paths:
+#       - tfplan-prod
+
+terraform-apply-refresh-DEV:
+  extends: .terraform
+  stage: tf-apply-refresh
+  script:
+    - terraform workspace select default
+    - terraform apply -auto-approve -refresh-only -var-file="Dev/terraform-dev.tfvars"
+  dependencies:
+    - terraform-plan-DEV
+  when: manual
+
+terraform-apply-refresh-UAT:
+  extends: .terraform
+  stage: tf-apply-refresh
+  script:
+    - terraform workspace select UnicomerUAT
+    - terraform apply -auto-approve -refresh-only -var-file="UAT/terraform-uat.tfvars"
+  dependencies:
+    - terraform-plan-UAT
+  when: manual
+
+# terraform-apply-refresh-PROD:
+#   extends: .terraform
+#   stage: tf-apply-refresh
+#   script:
+#     - terraform workspace select UnicomerPROD
+#     - terraform apply -auto-approve -refresh-only -var-file="Production/terraform-prod.tfvars"
+#   dependencies:
+#     - terraform-plan-PROD
+#   when: manual
+
+terraform-apply-DEV:
+  extends: .terraform
+  stage: tf-apply
+  script:
+    - terraform workspace select default
+    - terraform apply -auto-approve -var-file="Dev/terraform-dev.tfvars"
+  dependencies:
+    - terraform-plan-DEV
+  when: manual
+
+terraform-apply-UAT:
+  extends: .terraform
+  stage: tf-apply
+  script:
+    - terraform workspace select UnicomerUAT
+    - terraform apply -auto-approve -var-file="UAT/terraform-uat.tfvars"
+  dependencies:
+    - terraform-plan-UAT
+  when: manual
+
+# terraform-apply-PROD:
+#   extends: .terraform
+#   stage: tf-apply
+#   script:
+#     - terraform workspace select UnicomerPROD
+#     - terraform apply -auto-approve -var-file="Production/terraform-prod.tfvars"
+#   dependencies:
+#     - terraform-plan-PROD
+#   when: manual
